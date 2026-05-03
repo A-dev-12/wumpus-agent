@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Wumpus World Logic Agent</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: Arial, sans-serif; background: #1a1a2e; color: #eee; padding: 20px; }
+  h1 { text-align: center; margin-bottom: 16px; color: #e0c46c; }
+  .container { max-width: 960px; margin: auto; }
+  .controls { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; align-items: center; }
+  .controls label { font-size: 14px; }
+  .controls input { width: 50px; padding: 4px; border-radius: 4px; border: 1px solid #555; background: #333; color: #eee; }
+  button { padding: 8px 16px; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; }
+  #btnStart { background: #4caf50; color: white; }
+  #btnStep { background: #2196f3; color: white; }
+  #btnAuto { background: #ff9800; color: white; }
+  #btnReset { background: #f44336; color: white; }
+  .main { display: flex; gap: 20px; flex-wrap: wrap; }
+  #gridWrapper { flex: 1; min-width: 280px; }
+  #grid { display: grid; gap: 3px; }
+  .cell {
+    width: 60px; height: 60px; border-radius: 6px; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; font-size: 11px; font-weight: bold;
+    border: 2px solid #444; cursor: default; transition: background 0.3s;
+    position: relative;
+  }
+  .cell .icon { font-size: 22px; }
+  .cell .label { font-size: 9px; margin-top: 2px; }
+  .cell.unknown  { background: #444; }
+  .cell.visited  { background: #2d6a4f; }
+  .cell.safe     { background: #1b4332; border-color: #52b788; }
+  .cell.agent    { background: #1565c0; border-color: #90caf9; }
+  .cell.pit      { background: #7f0000; border-color: #ef5350; }
+  .cell.wumpus   { background: #4a0048; border-color: #ce93d8; }
+  .cell.gold     { background: #7b6000; border-color: #fdd835; }
+  .cell.dead     { background: #111; }
+  .sidebar { width: 260px; display: flex; flex-direction: column; gap: 12px; }
+  .panel { background: #16213e; border-radius: 8px; padding: 12px; }
+  .panel h3 { color: #90caf9; margin-bottom: 8px; font-size: 14px; border-bottom: 1px solid #334; padding-bottom: 4px; }
+  .metric { display: flex; justify-content: space-between; font-size: 13px; padding: 3px 0; }
+  .metric span:last-child { color: #ffd54f; font-weight: bold; }
+  #percepts { font-size: 13px; line-height: 1.8; }
+  #log { font-size: 11px; max-height: 200px; overflow-y: auto; line-height: 1.6; color: #aaa; }
+  .log-entry { border-bottom: 1px solid #223; padding: 2px 0; }
+  .status { text-align: center; font-size: 14px; padding: 8px; border-radius: 6px; margin-top: 8px; }
+  .status.ok  { background: #1b5e20; color: #a5d6a7; }
+  .status.dead{ background: #7f0000; color: #ef9a9a; }
+  .status.win { background: #7b6000; color: #fdd835; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .leg { display: flex; align-items: center; gap: 4px; font-size: 11px; }
+  .leg-box { width: 14px; height: 14px; border-radius: 3px; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>🧭 Wumpus World Logic Agent</h1>
+
+  <div class="controls">
+    <label>Rows: <input id="rows" type="number" value="4" min="3" max="7"></label>
+    <label>Cols: <input id="cols" type="number" value="4" min="3" max="7"></label>
+    <label>Pits: <input id="pits" type="number" value="3" min="1" max="8"></label>
+    <button id="btnStart">New Game</button>
+    <button id="btnStep">Step</button>
+    <button id="btnAuto">Auto Play</button>
+    <button id="btnReset">Reset</button>
+  </div>
+
+  <div class="main">
+    <div id="gridWrapper">
+      <div id="grid"></div>
+      <div class="legend">
+        <div class="leg"><div class="leg-box" style="background:#1565c0"></div> Agent</div>
+        <div class="leg"><div class="leg-box" style="background:#1b4332;border:1px solid #52b788"></div> Safe</div>
+        <div class="leg"><div class="leg-box" style="background:#2d6a4f"></div> Visited</div>
+        <div class="leg"><div class="leg-box" style="background:#444"></div> Unknown</div>
+        <div class="leg"><div class="leg-box" style="background:#7f0000"></div> Pit</div>
+        <div class="leg"><div class="leg-box" style="background:#4a0048"></div> Wumpus</div>
+      </div>
+    </div>
+
+    <div class="sidebar">
+      <div class="panel">
+        <h3>📊 Metrics</h3>
+        <div class="metric"><span>Inference Steps</span><span id="mInfer">0</span></div>
+        <div class="metric"><span>Moves Taken</span><span id="mMoves">0</span></div>
+        <div class="metric"><span>KB Clauses</span><span id="mClauses">0</span></div>
+        <div class="metric"><span>Cells Visited</span><span id="mVisited">0</span></div>
+        <div class="metric"><span>Safe Inferred</span><span id="mSafe">0</span></div>
+      </div>
+
+      <div class="panel">
+        <h3>📡 Current Percepts</h3>
+        <div id="percepts">—</div>
+      </div>
+
+      <div class="panel">
+        <h3>🧠 KB (last 5 clauses)</h3>
+        <div id="kbDisplay" style="font-size:11px;color:#aaa;line-height:1.7;">—</div>
+      </div>
+
+      <div class="panel">
+        <h3>📋 Agent Log</h3>
+        <div id="log"></div>
+      </div>
+
+      <div id="statusBox" class="status ok">Initializing...</div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─── State ───────────────────────────────────────────────────────────────
+let R, C, grid, agent, KB, visited, safe, inferredPit, inferredWumpus;
+let inferSteps, moves, wumpusAlive, gameOver, autoTimer;
+
+// ─── Init ─────────────────────────────────────────────────────────────────
+function startGame() {
+  clearInterval(autoTimer);
+  R = +document.getElementById('rows').value;
+  C = +document.getElementById('cols').value;
+  const numPits = +document.getElementById('pits').value;
+
+  grid = Array.from({length:R}, () => Array.from({length:C}, () => ({
+    pit: false, wumpus: false, gold: false, breeze: false, stench: false
+  })));
+
+  agent = {r: R-1, c: 0, alive: true};
+  KB = [];
+  visited  = new Set();
+  safe     = new Set();
+  inferredPit    = new Set();
+  inferredWumpus = new Set();
+  inferSteps = moves = 0;
+  wumpusAlive = true;
+  gameOver = false;
+
+  // Place pits randomly (not at start)
+  let placed = 0;
+  while (placed < numPits) {
+    const r = Math.floor(Math.random()*R);
+    const c = Math.floor(Math.random()*C);
+    if ((r===R-1 && c===0) || grid[r][c].pit) continue;
+    grid[r][c].pit = true; placed++;
+  }
+  // Place wumpus
+  let wr, wc;
+  do { wr = Math.floor(Math.random()*R); wc = Math.floor(Math.random()*C); }
+  while ((wr===R-1 && wc===0) || grid[wr][wc].pit);
+  grid[wr][wc].wumpus = true;
+
+  // Compute breezes and stenches
+  for (let r=0;r<R;r++) for (let c=0;c<C;c++) {
+    neighbors(r,c).forEach(([nr,nc]) => {
+      if (grid[nr][nc].pit)    grid[r][c].breeze = true;
+      if (grid[nr][nc].wumpus) grid[r][c].stench = true;
+    });
+  }
+
+  log('Game started. Agent at ('+(R-1)+',0)');
+  perceive();
+  render();
+  setStatus('ok','Game running...');
+}
+
+function neighbors(r,c) {
+  return [[r-1,c],[r+1,c],[r,c-1],[r,c+1]].filter(([nr,nc])=>nr>=0&&nr<R&&nc>=0&&nc<C);
+}
+
+function key(r,c) { return r+','+c; }
+
+// ─── Perception & KB ─────────────────────────────────────────────────────
+function perceive() {
+  const {r,c} = agent;
+  const k = key(r,c);
+  visited.add(k);
+  safe.add(k);
+  const cell = grid[r][c];
+
+  const percepts = [];
+  if (cell.breeze) { percepts.push('💨 Breeze'); tellKB(`B_${r}_${c}`); }
+  else             { tellKB(`~B_${r}_${c}`); inferNoBreeze(r,c); }
+  if (cell.stench) { percepts.push('🦨 Stench'); tellKB(`S_${r}_${c}`); }
+  else             { tellKB(`~S_${r}_${c}`); inferNoStench(r,c); }
+  if (cell.gold)   { percepts.push('🏆 Gold!'); }
+
+  // Add biconditional clauses
+  const ns = neighbors(r,c).map(([nr,nc])=>`P_${nr}_${nc}`).join('|');
+  if (ns) tellKB(`B_${r}_${c} <=> (${ns})`);
+  const ws = neighbors(r,c).map(([nr,nc])=>`W_${nr}_${nc}`).join('|');
+  if (ws) tellKB(`S_${r}_${c} <=> (${ws})`);
+
+  document.getElementById('percepts').innerHTML =
+    percepts.length ? percepts.join('<br>') : '✅ Clear';
+  updateMetrics();
+}
+
+function tellKB(clause) {
+  if (!KB.includes(clause)) { KB.push(clause); }
+}
+
+function inferNoBreeze(r,c) {
+  // No breeze => all neighbors are safe
+  neighbors(r,c).forEach(([nr,nc]) => {
+    const k = key(nr,nc);
+    if (!inferredPit.has(k)) { safe.add(k); tellKB(`~P_${nr}_${nc}`); }
+    inferSteps++;
+  });
+}
+
+function inferNoStench(r,c) {
+  neighbors(r,c).forEach(([nr,nc]) => {
+    const k = key(nr,nc);
+    if (!inferredWumpus.has(k)) { tellKB(`~W_${nr}_${nc}`); }
+    inferSteps++;
+  });
+}
+
+// Resolution Refutation: ask if cell (r,c) is safe (no pit, no wumpus)
+function askSafe(r,c) {
+  inferSteps++;
+  // Check if ~P_r_c is in KB (no pit inferred)
+  const noPit    = KB.includes(`~P_${r}_${c}`);
+  // Check if ~W_r_c is in KB
+  const noWumpus = KB.includes(`~W_${r}_${c}`) || !wumpusAlive;
+  // Check if P_r_c or W_r_c confirmed dangerous
+  const hasPit   = KB.includes(`P_${r}_${c}`) || inferredPit.has(key(r,c));
+  const hasWumpus= KB.includes(`W_${r}_${c}`) || inferredWumpus.has(key(r,c));
+
+  if (hasPit || hasWumpus) return false;
+  return noPit && noWumpus;
+}
+
+// ─── Agent Move ──────────────────────────────────────────────────────────
+function step() {
+  if (gameOver) return;
+  const {r,c} = agent;
+
+  // Find best next cell: prefer unvisited safe, then revisit safe
+  let candidates = neighbors(r,c);
+  let unvisitedSafe = candidates.filter(([nr,nc]) =>
+    !visited.has(key(nr,nc)) && (safe.has(key(nr,nc)) || askSafe(nr,nc))
+  );
+  let revisitSafe = candidates.filter(([nr,nc]) =>
+    visited.has(key(nr,nc))
+  );
+
+  let target = null;
+  if (unvisitedSafe.length > 0) {
+    target = unvisitedSafe[0];
+  } else {
+    // Try frontier: unvisited unknown cells (agent takes risk)
+    let unknown = candidates.filter(([nr,nc]) =>
+      !visited.has(key(nr,nc)) && !inferredPit.has(key(nr,nc)) && !inferredWumpus.has(key(nr,nc))
+    );
+    if (unknown.length > 0) target = unknown[0];
+    else if (revisitSafe.length > 0) target = revisitSafe[0];
+  }
+
+  if (!target) { log('No moves available. Stuck.'); gameOver=true; return; }
+
+  const [nr,nc] = target;
+  agent.r = nr; agent.c = nc;
+  moves++;
+
+  const cell = grid[nr][nc];
+  if (cell.pit)    { log(`💥 Fell into pit at (${nr},${nc})!`); agent.alive=false; gameOver=true; setStatus('dead','Agent fell in a pit!'); }
+  else if (cell.wumpus && wumpusAlive) { log(`💀 Eaten by Wumpus at (${nr},${nc})!`); agent.alive=false; gameOver=true; setStatus('dead','Agent eaten by Wumpus!'); }
+  else {
+    log(`Moved to (${nr},${nc})`);
+    perceive();
+  }
+  render();
+  if (!agent.alive) clearInterval(autoTimer);
+}
+
+// ─── Render ──────────────────────────────────────────────────────────────
+function render() {
+  const g = document.getElementById('grid');
+  g.style.gridTemplateColumns = `repeat(${C},60px)`;
+  g.innerHTML = '';
+
+  for (let r=0;r<R;r++) {
+    for (let c=0;c<C;c++) {
+      const div = document.createElement('div');
+      div.className = 'cell';
+      const k = key(r,c);
+      const isAgent = agent.r===r && agent.c===c;
+      const cell = grid[r][c];
+
+      let cls = 'unknown', icon = '', lbl = '';
+      if (!agent.alive && isAgent) { cls='dead'; icon='💀'; }
+      else if (isAgent) { cls='agent'; icon='🤖'; }
+      else if (visited.has(k)) { cls='visited'; }
+      else if (safe.has(k)) { cls='safe'; icon='✅'; }
+      else if (inferredPit.has(k)) { cls='pit'; icon='⚫'; lbl='PIT'; }
+      else if (inferredWumpus.has(k)) { cls='wumpus'; icon='👾'; lbl='W'; }
+
+      // If game over, reveal all
+      if (gameOver && !isAgent) {
+        if (cell.pit)    { cls='pit';    icon='🕳️'; lbl='PIT'; }
+        if (cell.wumpus) { cls='wumpus'; icon='👾'; lbl='W'; }
+      }
+
+      if (visited.has(k) && cell.breeze && !isAgent) lbl+='💨';
+      if (visited.has(k) && cell.stench && !isAgent) lbl+='🦨';
+
+      div.classList.add(cls);
+      div.innerHTML = `<span class="icon">${icon}</span><span class="label">${lbl}</span>`;
+      // Show coords
+      const coord = document.createElement('span');
+      coord.style.cssText='position:absolute;top:2px;left:3px;font-size:8px;opacity:0.5;';
+      coord.textContent=`${r},${c}`;
+      div.appendChild(coord);
+      g.appendChild(div);
+    }
+  }
+  updateMetrics();
+}
+
+function updateMetrics() {
+  document.getElementById('mInfer').textContent   = inferSteps;
+  document.getElementById('mMoves').textContent   = moves;
+  document.getElementById('mClauses').textContent = KB.length;
+  document.getElementById('mVisited').textContent = visited.size;
+  document.getElementById('mSafe').textContent    = safe.size;
+  document.getElementById('kbDisplay').innerHTML  =
+    KB.slice(-5).map(c=>`<div>${c}</div>`).join('') || '—';
+}
+
+function log(msg) {
+  const d = document.getElementById('log');
+  const e = document.createElement('div');
+  e.className='log-entry';
+  e.textContent=msg;
+  d.prepend(e);
+}
+
+function setStatus(type, msg) {
+  const s = document.getElementById('statusBox');
+  s.className='status '+type;
+  s.textContent=msg;
+}
+
+// ─── Events ──────────────────────────────────────────────────────────────
+document.getElementById('btnStart').onclick  = startGame;
+document.getElementById('btnStep').onclick   = step;
+document.getElementById('btnAuto').onclick   = () => {
+  clearInterval(autoTimer);
+  autoTimer = setInterval(()=>{ if(gameOver) clearInterval(autoTimer); else step(); }, 600);
+};
+document.getElementById('btnReset').onclick  = () => { clearInterval(autoTimer); startGame(); };
+
+startGame();
+</script>
+</body>
+</html>
